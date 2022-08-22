@@ -1,4 +1,10 @@
+## Changes from original version
+
+This fork allows for additional operations before calling `ngx.exit`.
+Note that it now becomes the developer's responsibility to perform `ngx.exit` before proceeding with the request.
+
 ## OpenResty Redis Backed Rate Limiter
+
 This is a OpenResty Lua and Redis powered rate limiter. You can specify the number of requests to allow within a certain timespan, ie. 40 requests within 10 seconds. With this setting (as an example), you can burst to 40 requests in a single second if you wanted, but would have to wait 9 more seconds before being allowed to issue another.
 
 One of the key reasons we built this was to be able to share the rate limit across our entire API fleet as opposed to individually on each instance. We've tested this to be stable with a single Redis instance processing over 20,000 requests per second.
@@ -6,9 +12,11 @@ One of the key reasons we built this was to be able to share the rate limit acro
 lua-resty-rate-limit is considered production ready and is currently being used to power our rate limiting at [The Movie Database (TMDb)](https://www.themoviedb.org).
 
 ### OpenResty Prerequisite
+
 You have to compile OpenResty with the `--with-http_realip_module` option.
 
 ### Needed in your nginx.conf
+
 ```
 http {
     # http://serverfault.com/questions/331531/nginx-set-real-ip-from-aws-elb-load-balancer-address
@@ -23,6 +31,7 @@ http {
 ```
 
 ### Example OpenResty Site Config
+
 ```
 # Location of this Lua package
 lua_package_path "/opt/lua-resty-rate-limit/lib/?.lua;;";
@@ -41,12 +50,16 @@ server {
     location / {
         access_by_lua '
             local request = require "resty.rate.limit"
-            request.limit { key = ngx.var.remote_addr,
+            local limited = request.limit { key = ngx.var.remote_addr,
                             rate = 40,
                             interval = 10,
                             log_level = ngx.NOTICE,
                             redis_config = { host = "127.0.0.1", port = 6379, timeout = 1, pool_size = 100 },
                             whitelisted_api_keys = { ["XXX"] = true, ["ZZZ"] = true } }
+            if limited then
+                -- perform pre exit functions here such as logging
+                ngx.exit(ngx.HTTP_OK)
+            end
         ';
 
         proxy_set_header  Host               $host;
@@ -64,14 +77,15 @@ server {
 ```
 
 ### Config Values
+
 You can customize the rate limiting options by changing the following values:
 
-* key: The value to use as a unique identifier in Redis
-* rate: The number of requests to allow within the specified interval
-* interval: The number of seconds before the bucket expires
-* log_level: Set an Nginx log level. All errors from this plugin will be dumped here
-* redis_config: The Redis host, port, timeout and pool size
-* whitelisted_api_keys: A lua table of API keys to skip the rate limit checks for
+- key: The value to use as a unique identifier in Redis
+- rate: The number of requests to allow within the specified interval
+- interval: The number of seconds before the bucket expires
+- log_level: Set an Nginx log level. All errors from this plugin will be dumped here
+- redis_config: The Redis host, port, timeout and pool size
+- whitelisted_api_keys: A lua table of API keys to skip the rate limit checks for
 
 ### License
 

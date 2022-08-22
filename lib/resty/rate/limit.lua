@@ -61,7 +61,7 @@ function _M.limit(config)
             local ok, redis = pcall(require, "resty.redis")
             if not ok then
                 ngx.log(log_level, "failed to require redis")
-                return
+                return false
             end
 
             local redis_config = config.redis_config or {}
@@ -76,7 +76,7 @@ function _M.limit(config)
             local ok, error = redis_connection:connect(redis_config.host, redis_config.port)
             if not ok then
                 ngx.log(log_level, "failed to connect to redis: ", error)
-                return
+                return false
             end
 
             config.redis_config = redis_config
@@ -92,7 +92,7 @@ function _M.limit(config)
 
         local response, error = bump_request(connection, redis_pool_size, key, rate, interval, current_time, log_level)
         if not response then
-            return
+            return false
         end
 
         if response.count > rate then
@@ -100,19 +100,20 @@ function _M.limit(config)
             if retry_after < 0 then
                 retry_after = 0
             end
-
+            ngx.header["Access-Control-Expose-Headers"] = "Retry-After"
+            ngx.header["Access-Control-Allow-Origin"] = "*"
             ngx.header["Content-Type"] = "application/json; charset=utf-8"
             ngx.header["Retry-After"] = retry_after
             ngx.status = 429
             ngx.say('{"status_code":25,"status_message":"Your request count (' .. response.count .. ') is over the allowed limit of ' .. rate .. '."}')
-            ngx.exit(ngx.HTTP_OK)
+            return true
         else
             ngx.header["X-RateLimit-Limit"] = rate
             ngx.header["X-RateLimit-Remaining"] = math.floor(response.remaining)
             ngx.header["X-RateLimit-Reset"] = math.floor(response.reset)
         end
     else
-        return
+        return false
     end
 end
 
